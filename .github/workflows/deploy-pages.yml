@@ -31,6 +31,8 @@ jobs:
 
       - name: Enable GitHub Pages
         uses: actions/configure-pages@v5
+        with:
+          enablement: true
 
       - name: Fetch dependencies
         run: flutter pub get
