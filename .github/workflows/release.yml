@@ -5,6 +5,11 @@ on:
     tags:
       - 'v*'
   workflow_dispatch:
+    inputs:
+      tag_name:
+        description: Release tag to publish, for example v1.0.0
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -12,9 +17,13 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag_name || github.ref_name }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG }}
 
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
@@ -35,5 +44,7 @@ jobs:
       - name: Upload APK to release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          name: ${{ env.RELEASE_TAG }}
           files: build/app/outputs/flutter-apk/app-release.apk
           generate_release_notes: true
