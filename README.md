@@ -15,9 +15,11 @@ Flutter app to manage Pterodactyl servers from a mobile-friendly UI.
 2. Run `flutter pub get`.
 3. Launch the app with `flutter run`.
 
-## GitHub Pages
+## GitHub Releases
 
-The workflow in [.github/workflows/deploy-pages.yml](.github/workflows/deploy-pages.yml) builds the Android APK on pushes to `main` and publishes a simple download page on GitHub Pages.
+The workflow in [.github/workflows/release.yml](.github/workflows/release.yml) builds the Android APK for tags that match `v*` and uploads the APK to a GitHub Release.
+
+Create a tag like `v1.0.0` to trigger the release build.
 
 ## Notes
 
