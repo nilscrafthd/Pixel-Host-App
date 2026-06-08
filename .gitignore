@@ -1,0 +1,11 @@
+.dart_tool/
+.build/
+.packages
+.pub/
+pubspec.lock
+build/
+android/.gradle/
+ios/Pods/
+linux/flutter/
+macos/Flutter/ephemeral/
+windows/flutter/ephemeral/
