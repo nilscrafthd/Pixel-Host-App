@@ -1,0 +1,12 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="dev.pixel_host_app">
+
+    <!-- Erforderlich, damit die App Netzwerkzugriff hat -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <application
+        android:label="@string/app_name"
+        android:icon="@mipmap/ic_launcher">
+        <!-- Default activity kept minimal; Flutter fügt die MainActivity beim Build hinzu. -->
+    </application>
+</manifest>
