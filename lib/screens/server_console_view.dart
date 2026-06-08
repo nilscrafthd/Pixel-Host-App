@@ -19,7 +19,6 @@ class ServerConsoleView extends StatefulWidget {
 class _ServerConsoleViewState extends State<ServerConsoleView> {
   final TextEditingController _commandController = TextEditingController();
   final List<String> _logs = <String>[];
-  WebSocketTicket? _ticket;
   StreamSubscription? _subscription;
   dynamic _channel;
   bool _connecting = true;
@@ -54,7 +53,6 @@ class _ServerConsoleViewState extends State<ServerConsoleView> {
 
     try {
       final ticket = await widget.client.getWebsocketTicket(widget.server.identifier);
-      _ticket = ticket;
       final channel = widget.client.connectWebsocket(ticket.socket);
       _channel = channel;
 

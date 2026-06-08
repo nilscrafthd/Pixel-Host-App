@@ -188,13 +188,13 @@ class PterodactylClient {
     _ensureSuccess(response);
   }
 
-  Future<WebsocketTicket> getWebsocketTicket(String identifier) async {
+  Future<WebSocketTicket> getWebsocketTicket(String identifier) async {
     final response = await _client.get(_uri('/api/client/servers/$identifier/websocket'), headers: _headers);
     _ensureSuccess(response);
 
     final decoded = jsonDecode(response.body) as Map<String, dynamic>;
     final data = decoded['data'] as Map<String, dynamic>? ?? const {};
-    return WebsocketTicket(
+    return WebSocketTicket(
       token: data['token']?.toString() ?? '',
       socket: data['socket']?.toString() ?? '',
     );
@@ -249,8 +249,8 @@ class PterodactylClient {
   }
 }
 
-class WebsocketTicket {
-  const WebsocketTicket({required this.token, required this.socket});
+class WebSocketTicket {
+  const WebSocketTicket({required this.token, required this.socket});
 
   final String token;
   final String socket;
