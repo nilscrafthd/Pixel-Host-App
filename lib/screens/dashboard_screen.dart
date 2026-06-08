@@ -23,7 +23,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
   void initState() {
     super.initState();
     _client = PterodactylClient(
-      panelUrl: widget.session.panelUrl,
       apiToken: widget.session.apiToken,
     );
     _serversFuture = _loadServers();

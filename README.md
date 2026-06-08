@@ -4,7 +4,8 @@ Flutter app to manage Pterodactyl servers from a mobile-friendly UI.
 
 ## Features
 
-- Sign in with a Pterodactyl panel URL and client API token
+- Sign in with a client API token only
+- Uses the fixed panel URL from [lib/config/app_config.dart](lib/config/app_config.dart)
 - View all accessible servers
 - Open server details with live resource data
 - Send power actions like start, stop, restart, and kill

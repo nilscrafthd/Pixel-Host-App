@@ -2,19 +2,21 @@ import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 
+import '../config/app_config.dart';
 import '../models/pterodactyl_server.dart';
 import '../models/server_resources.dart';
 
 class PterodactylClient {
-  PterodactylClient({required this.panelUrl, required this.apiToken, http.Client? client})
+  PterodactylClient({required this.apiToken, http.Client? client})
       : _client = client ?? http.Client();
 
-  final String panelUrl;
   final String apiToken;
   final http.Client _client;
 
   Uri _uri(String path, [Map<String, dynamic>? queryParameters]) {
-    final normalizedPanelUrl = panelUrl.endsWith('/') ? panelUrl.substring(0, panelUrl.length - 1) : panelUrl;
+    final normalizedPanelUrl = AppConfig.panelUrl.endsWith('/')
+        ? AppConfig.panelUrl.substring(0, AppConfig.panelUrl.length - 1)
+        : AppConfig.panelUrl;
     return Uri.parse('$normalizedPanelUrl$path').replace(queryParameters: queryParameters?.map((key, value) => MapEntry(key, value.toString())));
   }
 

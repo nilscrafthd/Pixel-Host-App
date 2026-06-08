@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../config/app_config.dart';
 import '../services/pterodactyl_client.dart';
 import '../services/session_store.dart';
 
@@ -14,14 +15,12 @@ class LoginScreen extends StatefulWidget {
 
 class _LoginScreenState extends State<LoginScreen> {
   final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
-  final TextEditingController _panelUrlController = TextEditingController();
   final TextEditingController _apiTokenController = TextEditingController();
   bool _loading = false;
   String? _errorMessage;
 
   @override
   void dispose() {
-    _panelUrlController.dispose();
     _apiTokenController.dispose();
     super.dispose();
   }
@@ -36,14 +35,8 @@ class _LoginScreenState extends State<LoginScreen> {
       _errorMessage = null;
     });
 
-    final session = SessionData(
-      panelUrl: _panelUrlController.text.trim(),
-      apiToken: _apiTokenController.text.trim(),
-    );
-    final client = PterodactylClient(
-      panelUrl: session.panelUrl,
-      apiToken: session.apiToken,
-    );
+    final session = SessionData(apiToken: _apiTokenController.text.trim());
+    final client = PterodactylClient(apiToken: session.apiToken);
 
     try {
       await client.fetchServers();
@@ -52,9 +45,9 @@ class _LoginScreenState extends State<LoginScreen> {
       setState(() {
         _errorMessage = error.message;
       });
-    } catch (_) {
+    } catch (error) {
       setState(() {
-        _errorMessage = 'Unable to connect to the panel.';
+        _errorMessage = 'Unable to connect to panel: $error';
       });
     } finally {
       client.dispose();
@@ -91,30 +84,10 @@ class _LoginScreenState extends State<LoginScreen> {
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        'Sign in with your Pterodactyl panel URL and Client API token.',
+                        'Sign in with your Client API token for ${AppConfig.panelUrl}.',
                         style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: Colors.white70),
                       ),
                       const SizedBox(height: 24),
-                      TextFormField(
-                        controller: _panelUrlController,
-                        keyboardType: TextInputType.url,
-                        decoration: const InputDecoration(
-                          labelText: 'Panel URL',
-                          hintText: 'https://panel.example.com',
-                        ),
-                        validator: (value) {
-                          final trimmed = value?.trim() ?? '';
-                          if (trimmed.isEmpty) {
-                            return 'Enter your panel URL.';
-                          }
-                          final uri = Uri.tryParse(trimmed);
-                          if (uri == null || (!uri.hasScheme || !uri.hasAuthority)) {
-                            return 'Enter a valid URL including https://';
-                          }
-                          return null;
-                        },
-                      ),
-                      const SizedBox(height: 16),
                       TextFormField(
                         controller: _apiTokenController,
                         obscureText: true,
