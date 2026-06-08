@@ -3,6 +3,10 @@ import 'package:flutter/material.dart';
 import '../models/pterodactyl_server.dart';
 import '../models/server_resources.dart';
 import '../services/pterodactyl_client.dart';
+import 'server_console_view.dart';
+import 'server_file_manager_view.dart';
+
+enum ServerSection { overview, console, files, actions }
 
 class ServerDetailScreen extends StatefulWidget {
   const ServerDetailScreen({super.key, required this.client, required this.server});
@@ -16,7 +20,7 @@ class ServerDetailScreen extends StatefulWidget {
 
 class _ServerDetailScreenState extends State<ServerDetailScreen> {
   late Future<ServerResources> _resourcesFuture;
-  bool _actionInProgress = false;
+  ServerSection _section = ServerSection.overview;
 
   @override
   void initState() {
@@ -31,33 +35,180 @@ class _ServerDetailScreenState extends State<ServerDetailScreen> {
   }
 
   Future<void> _sendSignal(String signal) async {
-    setState(() {
-      _actionInProgress = true;
-    });
-
     try {
       await widget.client.sendPowerSignal(widget.server.identifier, signal);
       await _refresh();
       if (!mounted) {
         return;
       }
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Sent $signal signal to ${widget.server.name}')),
-      );
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$signal sent to ${widget.server.name}')));
     } on PterodactylApiException catch (error) {
       if (!mounted) {
         return;
       }
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(error.message)),
-      );
-    } finally {
-      if (mounted) {
-        setState(() {
-          _actionInProgress = false;
-        });
-      }
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.message)));
     }
+  }
+
+  Future<void> _renameServer() async {
+    final nameController = TextEditingController(text: widget.server.name);
+    final descriptionController = TextEditingController(text: widget.server.description);
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Rename server'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(controller: nameController, decoration: const InputDecoration(labelText: 'Name')),
+            const SizedBox(height: 12),
+            TextField(controller: descriptionController, decoration: const InputDecoration(labelText: 'Description')),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Save')),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      await widget.client.renameServer(
+        widget.server.identifier,
+        nameController.text.trim(),
+        description: descriptionController.text.trim().isEmpty ? null : descriptionController.text.trim(),
+      );
+      await _refresh();
+    }
+
+    nameController.dispose();
+    descriptionController.dispose();
+  }
+
+  Future<void> _reinstallServer() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Reinstall server'),
+        content: const Text('This will rebuild the server. Continue?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Reinstall')),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      await widget.client.reinstallServer(widget.server.identifier);
+      await _refresh();
+    }
+  }
+
+  Widget _buildSectionSelector() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+      child: Card(
+        elevation: 0,
+        color: const Color(0xFF111B2E),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Row(
+            children: [
+              Expanded(
+                child: DropdownButtonFormField<ServerSection>(
+                  value: _section,
+                  decoration: const InputDecoration(labelText: 'Section'),
+                  items: const [
+                    DropdownMenuItem(value: ServerSection.overview, child: Text('Overview')),
+                    DropdownMenuItem(value: ServerSection.console, child: Text('Console')),
+                    DropdownMenuItem(value: ServerSection.files, child: Text('File Manager')),
+                    DropdownMenuItem(value: ServerSection.actions, child: Text('Actions')),
+                  ],
+                  onChanged: (value) {
+                    if (value != null) {
+                      setState(() => _section = value);
+                    }
+                  },
+                ),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Text(
+                  widget.server.description.isEmpty ? widget.server.identifier : widget.server.description,
+                  style: const TextStyle(color: Colors.white70),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildOverview(ServerResources? resources, Object? error) {
+    final hasError = error != null;
+    final state = resources?.state ?? (hasError ? 'error' : 'loading');
+
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        _HeaderCard(server: widget.server, status: state),
+        const SizedBox(height: 16),
+        if (hasError)
+          _ErrorCard(message: error.toString(), onRetry: _refresh)
+        else if (resources != null) ...[
+          Wrap(
+            spacing: 12,
+            runSpacing: 12,
+            children: [
+              _MetricCard(title: 'Memory', value: _formatBytes(resources.memoryBytes), subtitle: state),
+              _MetricCard(title: 'CPU', value: '${resources.cpuAbsolute.toStringAsFixed(1)}%', subtitle: 'Live usage'),
+              _MetricCard(title: 'Disk', value: _formatBytes(resources.diskBytes), subtitle: 'Current usage'),
+              _MetricCard(title: 'Network RX', value: _formatBytes(resources.networkRxBytes), subtitle: 'Received'),
+              _MetricCard(title: 'Network TX', value: _formatBytes(resources.networkTxBytes), subtitle: 'Sent'),
+            ],
+          ),
+          const SizedBox(height: 16),
+          _QuickActionCard(
+            onStart: () => _sendSignal('start'),
+            onRestart: () => _sendSignal('restart'),
+            onStop: () => _sendSignal('stop'),
+            onKill: () => _sendSignal('kill'),
+            onReinstall: _reinstallServer,
+            onRename: _renameServer,
+          ),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildActions(ServerResources? resources, Object? error) {
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        _HeaderCard(server: widget.server, status: resources?.state ?? (error != null ? 'error' : 'loading')),
+        const SizedBox(height: 16),
+        _QuickActionCard(
+          onStart: () => _sendSignal('start'),
+          onRestart: () => _sendSignal('restart'),
+          onStop: () => _sendSignal('stop'),
+          onKill: () => _sendSignal('kill'),
+          onReinstall: _reinstallServer,
+          onRename: _renameServer,
+        ),
+        const SizedBox(height: 16),
+        if (error != null) _ErrorCard(message: error.toString(), onRetry: _refresh),
+        if (resources != null) ...[
+          _MetricCard(title: 'Status', value: resources.state, subtitle: 'Server state'),
+          const SizedBox(height: 12),
+          _MetricCard(title: 'Identifier', value: widget.server.identifier, subtitle: 'Client ID'),
+          const SizedBox(height: 12),
+          _MetricCard(title: 'Allocation', value: widget.server.allocation, subtitle: widget.server.node),
+        ],
+      ],
+    );
   }
 
   @override
@@ -66,10 +217,16 @@ class _ServerDetailScreenState extends State<ServerDetailScreen> {
       appBar: AppBar(
         title: Text(widget.server.name),
         actions: [
-          IconButton(
-            onPressed: _refresh,
-            icon: const Icon(Icons.refresh),
-            tooltip: 'Refresh',
+          IconButton(onPressed: _refresh, icon: const Icon(Icons.refresh), tooltip: 'Refresh'),
+          PopupMenuButton<ServerSection>(
+            icon: const Icon(Icons.view_list),
+            onSelected: (section) => setState(() => _section = section),
+            itemBuilder: (context) => const [
+              PopupMenuItem(value: ServerSection.overview, child: Text('Overview')),
+              PopupMenuItem(value: ServerSection.console, child: Text('Console')),
+              PopupMenuItem(value: ServerSection.files, child: Text('File Manager')),
+              PopupMenuItem(value: ServerSection.actions, child: Text('Actions')),
+            ],
           ),
         ],
       ),
@@ -77,58 +234,25 @@ class _ServerDetailScreenState extends State<ServerDetailScreen> {
         future: _resourcesFuture,
         builder: (context, snapshot) {
           final resources = snapshot.data;
-          final hasError = snapshot.hasError;
-          return ListView(
-            padding: const EdgeInsets.all(16),
+          final error = snapshot.error;
+
+          return Column(
             children: [
-              _HeaderCard(server: widget.server, resources: resources, hasError: hasError),
+              _buildSectionSelector(),
               const SizedBox(height: 16),
-              if (hasError)
-                _ErrorCard(
-                  message: snapshot.error.toString(),
-                  onRetry: _refresh,
-                )
-              else if (resources != null) ...[
-                _MetricCard(
-                  title: 'Memory',
-                  value: _formatBytes(resources.memoryBytes),
-                  subtitle: resources.state,
-                ),
-                const SizedBox(height: 12),
-                _MetricCard(
-                  title: 'CPU',
-                  value: '${resources.cpuAbsolute.toStringAsFixed(1)}%',
-                  subtitle: 'Live usage',
-                ),
-                const SizedBox(height: 12),
-                _MetricCard(
-                  title: 'Disk',
-                  value: _formatBytes(resources.diskBytes),
-                  subtitle: 'Current usage',
-                ),
-              ],
-              const SizedBox(height: 16),
-              Wrap(
-                spacing: 12,
-                runSpacing: 12,
-                children: [
-                  FilledButton(
-                    onPressed: _actionInProgress ? null : () => _sendSignal('start'),
-                    child: const Text('Start'),
-                  ),
-                  FilledButton.tonal(
-                    onPressed: _actionInProgress ? null : () => _sendSignal('restart'),
-                    child: const Text('Restart'),
-                  ),
-                  OutlinedButton(
-                    onPressed: _actionInProgress ? null : () => _sendSignal('stop'),
-                    child: const Text('Stop'),
-                  ),
-                  TextButton(
-                    onPressed: _actionInProgress ? null : () => _sendSignal('kill'),
-                    child: const Text('Kill'),
-                  ),
-                ],
+              Expanded(
+                child: switch (_section) {
+                  ServerSection.overview => _buildOverview(resources, error),
+                  ServerSection.console => Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                      child: ServerConsoleView(client: widget.client, server: widget.server),
+                    ),
+                  ServerSection.files => Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                      child: ServerFileManagerView(client: widget.client, server: widget.server),
+                    ),
+                  ServerSection.actions => _buildActions(resources, error),
+                },
               ),
             ],
           );
@@ -139,15 +263,13 @@ class _ServerDetailScreenState extends State<ServerDetailScreen> {
 }
 
 class _HeaderCard extends StatelessWidget {
-  const _HeaderCard({required this.server, required this.resources, required this.hasError});
+  const _HeaderCard({required this.server, required this.status});
 
   final PterodactylServer server;
-  final ServerResources? resources;
-  final bool hasError;
+  final String status;
 
   @override
   Widget build(BuildContext context) {
-    final state = resources?.state ?? (hasError ? 'error' : 'loading');
     return Card(
       elevation: 0,
       color: const Color(0xFF111B2E),
@@ -163,7 +285,50 @@ class _HeaderCard extends StatelessWidget {
             const SizedBox(height: 16),
             _KeyValue(label: 'Identifier', value: server.identifier),
             _KeyValue(label: 'Node', value: server.node),
-            _KeyValue(label: 'Status', value: state),
+            _KeyValue(label: 'Status', value: status),
+            _KeyValue(label: 'Allocation', value: server.allocation),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _QuickActionCard extends StatelessWidget {
+  const _QuickActionCard({
+    required this.onStart,
+    required this.onRestart,
+    required this.onStop,
+    required this.onKill,
+    required this.onReinstall,
+    required this.onRename,
+  });
+
+  final VoidCallback onStart;
+  final VoidCallback onRestart;
+  final VoidCallback onStop;
+  final VoidCallback onKill;
+  final VoidCallback onReinstall;
+  final VoidCallback onRename;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      elevation: 0,
+      color: const Color(0xFF111B2E),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Wrap(
+          spacing: 12,
+          runSpacing: 12,
+          children: [
+            FilledButton(onPressed: onStart, child: const Text('Start')),
+            FilledButton.tonal(onPressed: onRestart, child: const Text('Restart')),
+            OutlinedButton(onPressed: onStop, child: const Text('Stop')),
+            TextButton(onPressed: onKill, child: const Text('Kill')),
+            FilledButton.tonal(onPressed: onReinstall, child: const Text('Reinstall')),
+            OutlinedButton(onPressed: onRename, child: const Text('Rename')),
           ],
         ),
       ),
@@ -180,25 +345,24 @@ class _MetricCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Card(
-      elevation: 0,
-      color: const Color(0xFF111B2E),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-      child: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(title, style: const TextStyle(color: Colors.white70)),
-                const SizedBox(height: 8),
-                Text(value, style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold)),
-              ],
-            ),
-            Text(subtitle, style: const TextStyle(color: Colors.white54)),
-          ],
+    return SizedBox(
+      width: 220,
+      child: Card(
+        elevation: 0,
+        color: const Color(0xFF111B2E),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(title, style: const TextStyle(color: Colors.white70)),
+              const SizedBox(height: 8),
+              Text(value, style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold)),
+              const SizedBox(height: 8),
+              Text(subtitle, style: const TextStyle(color: Colors.white54)),
+            ],
+          ),
         ),
       ),
     );
@@ -246,7 +410,7 @@ class _KeyValue extends StatelessWidget {
       padding: const EdgeInsets.only(bottom: 8),
       child: Row(
         children: [
-          SizedBox(width: 90, child: Text(label, style: const TextStyle(color: Colors.white70))),
+          SizedBox(width: 100, child: Text(label, style: const TextStyle(color: Colors.white70))),
           Expanded(child: Text(value)),
         ],
       ),

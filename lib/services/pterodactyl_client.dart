@@ -1,8 +1,10 @@
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
+import 'package:web_socket_channel/web_socket_channel.dart';
 
 import '../config/app_config.dart';
+import '../models/pterodactyl_file.dart';
 import '../models/pterodactyl_server.dart';
 import '../models/server_resources.dart';
 
@@ -43,6 +45,163 @@ class PterodactylClient {
 
     final decoded = jsonDecode(response.body) as Map<String, dynamic>;
     return ServerResources.fromJson(decoded);
+  }
+
+  Future<List<PterodactylFile>> loadDirectory(String identifier, String directory) async {
+    final response = await _client.get(
+      _uri('/api/client/servers/$identifier/files/list', <String, dynamic>{'directory': directory}),
+      headers: _headers,
+    );
+    _ensureSuccess(response);
+
+    final decoded = jsonDecode(response.body) as Map<String, dynamic>;
+    final data = decoded['data'] as List<dynamic>? ?? const [];
+    return data.map((entry) => PterodactylFile.fromJson(entry as Map<String, dynamic>)).toList(growable: false);
+  }
+
+  Future<String> getFileContents(String identifier, String file) async {
+    final response = await _client.get(
+      _uri('/api/client/servers/$identifier/files/contents', <String, dynamic>{'file': file}),
+      headers: _headers,
+    );
+    _ensureSuccess(response);
+    return response.body;
+  }
+
+  Future<void> saveFileContents(String identifier, String file, String content) async {
+    final response = await _client.post(
+      _uri('/api/client/servers/$identifier/files/write', <String, dynamic>{'file': file}),
+      headers: <String, String>{
+        ..._headers,
+        'Content-Type': 'text/plain',
+      },
+      body: content,
+    );
+    _ensureSuccess(response);
+  }
+
+  Future<void> deleteFiles(String identifier, String root, List<String> files) async {
+    final response = await _client.post(
+      _uri('/api/client/servers/$identifier/files/delete'),
+      headers: _headers,
+      body: jsonEncode(<String, dynamic>{'root': root, 'files': files}),
+    );
+    _ensureSuccess(response);
+  }
+
+  Future<void> copyFile(String identifier, String location) async {
+    final response = await _client.post(
+      _uri('/api/client/servers/$identifier/files/copy'),
+      headers: _headers,
+      body: jsonEncode(<String, String>{'location': location}),
+    );
+    _ensureSuccess(response);
+  }
+
+  Future<void> renameFiles(String identifier, String root, List<Map<String, String>> files) async {
+    final response = await _client.put(
+      _uri('/api/client/servers/$identifier/files/rename'),
+      headers: _headers,
+      body: jsonEncode(<String, dynamic>{'root': root, 'files': files}),
+    );
+    _ensureSuccess(response);
+  }
+
+  Future<void> createDirectory(String identifier, String root, String name) async {
+    final response = await _client.post(
+      _uri('/api/client/servers/$identifier/files/create-folder'),
+      headers: _headers,
+      body: jsonEncode(<String, dynamic>{'root': root, 'name': name}),
+    );
+    _ensureSuccess(response);
+  }
+
+  Future<void> chmodFiles(String identifier, String root, List<Map<String, String>> files) async {
+    final response = await _client.post(
+      _uri('/api/client/servers/$identifier/files/chmod'),
+      headers: _headers,
+      body: jsonEncode(<String, dynamic>{'root': root, 'files': files}),
+    );
+    _ensureSuccess(response);
+  }
+
+  Future<void> compressFiles(String identifier, String root, List<String> files) async {
+    final response = await _client.post(
+      _uri('/api/client/servers/$identifier/files/compress'),
+      headers: _headers,
+      body: jsonEncode(<String, dynamic>{'root': root, 'files': files}),
+    );
+    _ensureSuccess(response);
+  }
+
+  Future<void> decompressFile(String identifier, String root, String file) async {
+    final response = await _client.post(
+      _uri('/api/client/servers/$identifier/files/decompress'),
+      headers: _headers,
+      body: jsonEncode(<String, dynamic>{'root': root, 'file': file}),
+    );
+    _ensureSuccess(response);
+  }
+
+  Future<String> getFileDownloadUrl(String identifier, String file) async {
+    final response = await _client.get(
+      _uri('/api/client/servers/$identifier/files/download', <String, dynamic>{'file': file}),
+      headers: _headers,
+    );
+    _ensureSuccess(response);
+    final decoded = jsonDecode(response.body) as Map<String, dynamic>;
+    final attributes = decoded['attributes'] as Map<String, dynamic>? ?? const {};
+    return attributes['url']?.toString() ?? '';
+  }
+
+  Future<String> getFileUploadUrl(String identifier) async {
+    final response = await _client.get(_uri('/api/client/servers/$identifier/files/upload'), headers: _headers);
+    _ensureSuccess(response);
+    final decoded = jsonDecode(response.body) as Map<String, dynamic>;
+    final attributes = decoded['attributes'] as Map<String, dynamic>? ?? const {};
+    return attributes['url']?.toString() ?? '';
+  }
+
+  Future<void> sendCommand(String identifier, String command) async {
+    final response = await _client.post(
+      _uri('/api/client/servers/$identifier/command'),
+      headers: _headers,
+      body: jsonEncode(<String, String>{'command': command}),
+    );
+    _ensureSuccess(response);
+  }
+
+  Future<void> renameServer(String identifier, String name, {String? description}) async {
+    final response = await _client.post(
+      _uri('/api/client/servers/$identifier/settings/rename'),
+      headers: _headers,
+      body: jsonEncode(<String, dynamic>{'name': name, 'description': description}),
+    );
+    _ensureSuccess(response);
+  }
+
+  Future<void> reinstallServer(String identifier) async {
+    final response = await _client.post(
+      _uri('/api/client/servers/$identifier/settings/reinstall'),
+      headers: _headers,
+    );
+    _ensureSuccess(response);
+  }
+
+  Future<WebsocketTicket> getWebsocketTicket(String identifier) async {
+    final response = await _client.get(_uri('/api/client/servers/$identifier/websocket'), headers: _headers);
+    _ensureSuccess(response);
+
+    final decoded = jsonDecode(response.body) as Map<String, dynamic>;
+    final data = decoded['data'] as Map<String, dynamic>? ?? const {};
+    return WebsocketTicket(
+      token: data['token']?.toString() ?? '',
+      socket: data['socket']?.toString() ?? '',
+    );
+  }
+
+  WebSocketChannel connectWebsocket(String socketUrl) {
+    return WebSocketChannel.connect(Uri.parse(socketUrl));
   }
 
   Future<void> sendPowerSignal(String identifier, String signal) async {
@@ -88,6 +247,13 @@ class PterodactylClient {
     }
     return null;
   }
+}
+
+class WebsocketTicket {
+  const WebsocketTicket({required this.token, required this.socket});
+
+  final String token;
+  final String socket;
 }
 
 class PterodactylApiException implements Exception {
