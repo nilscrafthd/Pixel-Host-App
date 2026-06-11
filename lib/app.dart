@@ -24,9 +24,7 @@ class _PixelHostAppState extends State<PixelHostApp> {
 
   Future<void> _loadSession() async {
     final session = await _sessionStore.loadSession();
-    if (!mounted) {
-      return;
-    }
+    if (!mounted) return;
     setState(() {
       _session = session;
       _loading = false;
@@ -35,22 +33,14 @@ class _PixelHostAppState extends State<PixelHostApp> {
 
   Future<void> _handleLogin(SessionData session) async {
     await _sessionStore.saveSession(session);
-    if (!mounted) {
-      return;
-    }
-    setState(() {
-      _session = session;
-    });
+    if (!mounted) return;
+    setState(() => _session = session);
   }
 
   Future<void> _handleLogout() async {
     await _sessionStore.clearSession();
-    if (!mounted) {
-      return;
-    }
-    setState(() {
-      _session = null;
-    });
+    if (!mounted) return;
+    setState(() => _session = null);
   }
 
   @override
@@ -87,9 +77,7 @@ class _LoadingScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return const Scaffold(
-      body: Center(
-        child: CircularProgressIndicator(),
-      ),
+      body: Center(child: CircularProgressIndicator()),
     );
   }
 }
