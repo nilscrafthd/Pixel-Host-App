@@ -43,12 +43,42 @@ class PterodactylClient {
         : AppConfig.panelUrl;
 
     try {
-      final uri = Uri.parse('$normalizedPanelUrl/auth/login');
-      final response = await httpClient.post(
-        uri,
+      final loginUri = Uri.parse('$normalizedPanelUrl/auth/login');
+
+      // Step 1: GET the login page to obtain the CSRF cookie + token.
+      final getResponse = await httpClient.get(
+        loginUri,
+        headers: <String, String>{
+          'Accept': 'text/html,application/xhtml+xml',
+        },
+      );
+
+      // Extract Set-Cookie header(s) so we can echo them back.
+      final rawCookies = getResponse.headers['set-cookie'] ?? '';
+      final cookieHeader = _parseCookiesForRequest(rawCookies);
+
+      // Extract the CSRF token from the HTML (<meta name="csrf-token" content="...">)
+      // or from the XSRF-TOKEN / pterodactyl_session cookie value itself.
+      final csrfToken = _extractCsrfToken(getResponse.body, rawCookies);
+
+      if (csrfToken == null || csrfToken.isEmpty) {
+        throw const PterodactylApiException(
+          0,
+          'Could not retrieve CSRF token from the panel. '
+          'Make sure the panel URL is correct.',
+        );
+      }
+
+      // Step 2: POST credentials with the CSRF token.
+      final postResponse = await httpClient.post(
+        loginUri,
         headers: <String, String>{
           'Accept': 'application/json',
           'Content-Type': 'application/json',
+          'X-CSRF-TOKEN': csrfToken,
+          'X-Requested-With': 'XMLHttpRequest',
+          if (cookieHeader.isNotEmpty) 'Cookie': cookieHeader,
+          'Referer': loginUri.toString(),
         },
         body: jsonEncode(<String, String>{
           'user': username,
@@ -56,10 +86,8 @@ class PterodactylClient {
         }),
       );
 
-      if (response.statusCode >= 200 && response.statusCode < 300) {
-        final decoded = jsonDecode(response.body) as Map<String, dynamic>;
-
-        // Try to extract token from various possible response shapes
+      if (postResponse.statusCode >= 200 && postResponse.statusCode < 300) {
+        final decoded = jsonDecode(postResponse.body) as Map<String, dynamic>;
         final token = _extractTokenFromResponse(decoded);
         if (token != null && token.isNotEmpty) {
           return token;
@@ -72,14 +100,51 @@ class PterodactylClient {
         );
       }
 
-      final message = _extractErrorMessage(response.body) ??
-          'Login failed (${response.statusCode})';
-      throw PterodactylApiException(response.statusCode, message);
+      final message = _extractErrorMessage(postResponse.body) ??
+          'Login failed (${postResponse.statusCode})';
+      throw PterodactylApiException(postResponse.statusCode, message);
     } finally {
       if (client == null) {
         httpClient.close();
       }
     }
+  }
+
+  /// Parses a raw Set-Cookie header string into a Cookie request header value.
+  /// Handles both comma-separated and multi-value formats.
+  static String _parseCookiesForRequest(String rawSetCookie) {
+    if (rawSetCookie.isEmpty) return '';
+
+    final cookies = <String>[];
+    // Split on ", " only when followed by a cookie name (word=),
+    // to avoid splitting on comma-containing Expires= values.
+    final parts = rawSetCookie.split(RegExp(r',\s*(?=[^;,]+=[^;,]+)'));
+    for (final part in parts) {
+      final nameValue = part.trim().split(';').first.trim();
+      if (nameValue.isNotEmpty) {
+        cookies.add(nameValue);
+      }
+    }
+    return cookies.join('; ');
+  }
+
+  /// Tries to find the CSRF token in the HTML body or cookie string.
+  static String? _extractCsrfToken(String html, String rawCookies) {
+    // 1. <meta name="csrf-token" content="...">
+    final metaMatch =
+        RegExp(r'<meta\s+name=["\']csrf-token["\']\s+content=["\'](.*?)["\']',
+                caseSensitive: false)
+            .firstMatch(html);
+    if (metaMatch != null) return metaMatch.group(1);
+
+    // 2. XSRF-TOKEN cookie (URL-encoded)
+    final xsrfMatch =
+        RegExp(r'XSRF-TOKEN=([^;,\s]+)').firstMatch(rawCookies);
+    if (xsrfMatch != null) {
+      return Uri.decodeComponent(xsrfMatch.group(1)!);
+    }
+
+    return null;
   }
 
   static String? _extractTokenFromResponse(Map<String, dynamic> body) {
