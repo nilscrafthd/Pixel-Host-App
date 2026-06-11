@@ -131,15 +131,16 @@ class PterodactylClient {
   /// Tries to find the CSRF token in the HTML body or cookie string.
   static String? _extractCsrfToken(String html, String rawCookies) {
     // 1. <meta name="csrf-token" content="...">
-    final metaMatch =
-        RegExp(r'<meta\s+name=["\']csrf-token["\']\s+content=["\'](.*?)["\']',
-                caseSensitive: false)
-            .firstMatch(html);
+    // Pterodactyl always uses double-quoted HTML attributes, so we only
+    // match double quotes to avoid the Dart parser bug with \' in raw strings.
+    final metaMatch = RegExp(
+      r'<meta\s+name="csrf-token"\s+content="(.*?)"',
+      caseSensitive: false,
+    ).firstMatch(html);
     if (metaMatch != null) return metaMatch.group(1);
 
     // 2. XSRF-TOKEN cookie (URL-encoded)
-    final xsrfMatch =
-        RegExp(r'XSRF-TOKEN=([^;,\s]+)').firstMatch(rawCookies);
+    final xsrfMatch = RegExp(r'XSRF-TOKEN=([^;,\s]+)').firstMatch(rawCookies);
     if (xsrfMatch != null) {
       return Uri.decodeComponent(xsrfMatch.group(1)!);
     }
