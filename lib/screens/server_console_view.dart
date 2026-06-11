@@ -2,15 +2,17 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:web_socket_channel/web_socket_channel.dart';
 
 import '../models/pterodactyl_server.dart';
 import '../services/pterodactyl_client.dart';
 
 class ServerConsoleView extends StatefulWidget {
-  const ServerConsoleView({super.key, required this.client, required this.server});
+  const ServerConsoleView({super.key, required this.client, required this.server, this.showPopoutButton = true});
 
   final PterodactylClient client;
   final PterodactylServer server;
+  final bool showPopoutButton;
 
   @override
   State<ServerConsoleView> createState() => _ServerConsoleViewState();
@@ -20,7 +22,7 @@ class _ServerConsoleViewState extends State<ServerConsoleView> {
   final TextEditingController _commandController = TextEditingController();
   final List<String> _logs = <String>[];
   StreamSubscription? _subscription;
-  dynamic _channel;
+  WebSocketChannel? _channel;
   bool _connecting = true;
   bool _sending = false;
   String? _error;
@@ -34,21 +36,33 @@ class _ServerConsoleViewState extends State<ServerConsoleView> {
 
   @override
   void dispose() {
-    _subscription?.cancel();
-    try {
-      _channel?.sink.close();
-    } catch (_) {
-      // Ignore shutdown issues.
-    }
+    _closeConnection();
     _commandController.dispose();
     super.dispose();
   }
 
+  Future<void> _closeConnection() async {
+    final subscription = _subscription;
+    _subscription = null;
+    await subscription?.cancel();
+
+    final channel = _channel;
+    _channel = null;
+    try {
+      await channel?.sink.close();
+    } catch (_) {
+      // Ignore shutdown issues.
+    }
+  }
+
   Future<void> _connect() async {
+    await _closeConnection();
+
     setState(() {
       _connecting = true;
       _error = null;
       _logs.clear();
+      _status = 'connecting';
     });
 
     try {
@@ -64,6 +78,7 @@ class _ServerConsoleViewState extends State<ServerConsoleView> {
           }
           setState(() {
             _error = error.toString();
+            _status = 'error';
           });
         },
         onDone: () {
@@ -97,8 +112,20 @@ class _ServerConsoleViewState extends State<ServerConsoleView> {
       setState(() {
         _connecting = false;
         _error = error.toString();
+        _status = 'error';
       });
     }
+  }
+
+  Future<void> _openPopout() async {
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: true,
+      builder: (context) => _ConsolePopout(
+        client: widget.client,
+        server: widget.server,
+      ),
+    );
   }
 
   void _handleMessage(dynamic data) {
@@ -173,6 +200,7 @@ class _ServerConsoleViewState extends State<ServerConsoleView> {
           status: _status,
           onReconnect: _connect,
           connecting: _connecting,
+          onOpenPopout: widget.showPopoutButton ? _openPopout : null,
         ),
         const SizedBox(height: 16),
         Expanded(
@@ -242,12 +270,14 @@ class _ConsoleHeader extends StatelessWidget {
     required this.status,
     required this.onReconnect,
     required this.connecting,
+    required this.onOpenPopout,
   });
 
   final PterodactylServer server;
   final String status;
   final VoidCallback onReconnect;
   final bool connecting;
+  final VoidCallback? onOpenPopout;
 
   @override
   Widget build(BuildContext context) {
@@ -269,11 +299,71 @@ class _ConsoleHeader extends StatelessWidget {
                 ],
               ),
             ),
+            if (onOpenPopout != null) ...[
+              IconButton(
+                onPressed: onOpenPopout,
+                tooltip: 'Open popout',
+                icon: const Icon(Icons.open_in_new),
+              ),
+              const SizedBox(width: 4),
+            ],
             FilledButton.tonal(
               onPressed: connecting ? null : onReconnect,
               child: const Text('Reconnect'),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ConsolePopout extends StatefulWidget {
+  const _ConsolePopout({required this.client, required this.server});
+
+  final PterodactylClient client;
+  final PterodactylServer server;
+
+  @override
+  State<_ConsolePopout> createState() => _ConsolePopoutState();
+}
+
+class _ConsolePopoutState extends State<_ConsolePopout> {
+  int _reloadToken = 0;
+
+  void _reload() {
+    setState(() {
+      _reloadToken++;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog.fullscreen(
+      child: Scaffold(
+        appBar: AppBar(
+          title: Text('Console - ${widget.server.name}'),
+          actions: [
+            IconButton(
+              onPressed: _reload,
+              icon: const Icon(Icons.refresh),
+              tooltip: 'Reload console',
+            ),
+            IconButton(
+              onPressed: () => Navigator.of(context).pop(),
+              icon: const Icon(Icons.close),
+              tooltip: 'Close',
+            ),
+          ],
+        ),
+        body: Padding(
+          padding: const EdgeInsets.all(16),
+          child: ServerConsoleView(
+            key: ValueKey<int>(_reloadToken),
+            client: widget.client,
+            server: widget.server,
+            showPopoutButton: false,
+          ),
         ),
       ),
     );

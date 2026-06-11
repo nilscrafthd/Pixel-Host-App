@@ -19,7 +19,9 @@ class PterodactylClient {
     final normalizedPanelUrl = AppConfig.panelUrl.endsWith('/')
         ? AppConfig.panelUrl.substring(0, AppConfig.panelUrl.length - 1)
         : AppConfig.panelUrl;
-    return Uri.parse('$normalizedPanelUrl$path').replace(queryParameters: queryParameters?.map((key, value) => MapEntry(key, value.toString())));
+    return Uri.parse('$normalizedPanelUrl$path').replace(
+        queryParameters: queryParameters
+            ?.map((key, value) => MapEntry(key, value.toString())));
   }
 
   Map<String, String> get _headers => <String, String>{
@@ -28,49 +30,154 @@ class PterodactylClient {
         'Content-Type': 'application/json',
       };
 
+  /// Authenticates with username and password and returns an API token.
+  /// Throws [PterodactylApiException] on failure.
+  static Future<String> loginWithCredentials({
+    required String username,
+    required String password,
+    http.Client? client,
+  }) async {
+    final httpClient = client ?? http.Client();
+    final normalizedPanelUrl = AppConfig.panelUrl.endsWith('/')
+        ? AppConfig.panelUrl.substring(0, AppConfig.panelUrl.length - 1)
+        : AppConfig.panelUrl;
+
+    try {
+      final uri = Uri.parse('$normalizedPanelUrl/auth/login');
+      final response = await httpClient.post(
+        uri,
+        headers: <String, String>{
+          'Accept': 'application/json',
+          'Content-Type': 'application/json',
+        },
+        body: jsonEncode(<String, String>{
+          'user': username,
+          'password': password,
+        }),
+      );
+
+      if (response.statusCode >= 200 && response.statusCode < 300) {
+        final decoded = jsonDecode(response.body) as Map<String, dynamic>;
+
+        // Try to extract token from various possible response shapes
+        final token = _extractTokenFromResponse(decoded);
+        if (token != null && token.isNotEmpty) {
+          return token;
+        }
+
+        throw const PterodactylApiException(
+          200,
+          'Login succeeded but no API token was returned. '
+          'Please use the API token login instead.',
+        );
+      }
+
+      final message = _extractErrorMessage(response.body) ??
+          'Login failed (${response.statusCode})';
+      throw PterodactylApiException(response.statusCode, message);
+    } finally {
+      if (client == null) {
+        httpClient.close();
+      }
+    }
+  }
+
+  static String? _extractTokenFromResponse(Map<String, dynamic> body) {
+    // Shape: { "token": "..." }
+    final token = body['token'];
+    if (token is String && token.isNotEmpty) return token;
+
+    // Shape: { "data": { "token": "..." } }
+    final data = body['data'];
+    if (data is Map<String, dynamic>) {
+      final nested = data['token'];
+      if (nested is String && nested.isNotEmpty) return nested;
+    }
+
+    // Shape: { "attributes": { "token": "..." } }
+    final attributes = body['attributes'];
+    if (attributes is Map<String, dynamic>) {
+      final nested = attributes['token'];
+      if (nested is String && nested.isNotEmpty) return nested;
+    }
+
+    return null;
+  }
+
+  static String? _extractErrorMessage(String body) {
+    try {
+      final decoded = jsonDecode(body) as Map<String, dynamic>;
+      final errors = decoded['errors'];
+      if (errors is List && errors.isNotEmpty) {
+        final first = errors.first as Map<String, dynamic>?;
+        final detail = first?['detail']?.toString();
+        if (detail != null && detail.isNotEmpty) return detail;
+      }
+      final error = decoded['error'];
+      if (error is String && error.isNotEmpty) return error;
+      final message = decoded['message'];
+      if (message is String && message.isNotEmpty) return message;
+    } catch (_) {
+      return null;
+    }
+    return null;
+  }
+
   Future<List<PterodactylServer>> fetchServers() async {
-    final response = await _client.get(_uri('/api/client'), headers: _headers);
+    final response =
+        await _client.get(_uri('/api/client'), headers: _headers);
     _ensureSuccess(response);
 
     final decoded = jsonDecode(response.body) as Map<String, dynamic>;
     final data = decoded['data'] as List<dynamic>? ?? const [];
     return data
-        .map((entry) => PterodactylServer.fromJson(entry as Map<String, dynamic>))
+        .map((entry) =>
+            PterodactylServer.fromJson(entry as Map<String, dynamic>))
         .toList(growable: false);
   }
 
   Future<ServerResources> fetchServerResources(String identifier) async {
-    final response = await _client.get(_uri('/api/client/servers/$identifier/resources'), headers: _headers);
+    final response = await _client.get(
+        _uri('/api/client/servers/$identifier/resources'),
+        headers: _headers);
     _ensureSuccess(response);
 
     final decoded = jsonDecode(response.body) as Map<String, dynamic>;
     return ServerResources.fromJson(decoded);
   }
 
-  Future<List<PterodactylFile>> loadDirectory(String identifier, String directory) async {
+  Future<List<PterodactylFile>> loadDirectory(
+      String identifier, String directory) async {
     final response = await _client.get(
-      _uri('/api/client/servers/$identifier/files/list', <String, dynamic>{'directory': directory}),
+      _uri('/api/client/servers/$identifier/files/list',
+          <String, dynamic>{'directory': directory}),
       headers: _headers,
     );
     _ensureSuccess(response);
 
     final decoded = jsonDecode(response.body) as Map<String, dynamic>;
     final data = decoded['data'] as List<dynamic>? ?? const [];
-    return data.map((entry) => PterodactylFile.fromJson(entry as Map<String, dynamic>)).toList(growable: false);
+    return data
+        .map((entry) =>
+            PterodactylFile.fromJson(entry as Map<String, dynamic>))
+        .toList(growable: false);
   }
 
   Future<String> getFileContents(String identifier, String file) async {
     final response = await _client.get(
-      _uri('/api/client/servers/$identifier/files/contents', <String, dynamic>{'file': file}),
+      _uri('/api/client/servers/$identifier/files/contents',
+          <String, dynamic>{'file': file}),
       headers: _headers,
     );
     _ensureSuccess(response);
     return response.body;
   }
 
-  Future<void> saveFileContents(String identifier, String file, String content) async {
+  Future<void> saveFileContents(
+      String identifier, String file, String content) async {
     final response = await _client.post(
-      _uri('/api/client/servers/$identifier/files/write', <String, dynamic>{'file': file}),
+      _uri('/api/client/servers/$identifier/files/write',
+          <String, dynamic>{'file': file}),
       headers: <String, String>{
         ..._headers,
         'Content-Type': 'text/plain',
@@ -80,7 +187,8 @@ class PterodactylClient {
     _ensureSuccess(response);
   }
 
-  Future<void> deleteFiles(String identifier, String root, List<String> files) async {
+  Future<void> deleteFiles(
+      String identifier, String root, List<String> files) async {
     final response = await _client.post(
       _uri('/api/client/servers/$identifier/files/delete'),
       headers: _headers,
@@ -98,7 +206,8 @@ class PterodactylClient {
     _ensureSuccess(response);
   }
 
-  Future<void> renameFiles(String identifier, String root, List<Map<String, String>> files) async {
+  Future<void> renameFiles(
+      String identifier, String root, List<Map<String, String>> files) async {
     final response = await _client.put(
       _uri('/api/client/servers/$identifier/files/rename'),
       headers: _headers,
@@ -107,7 +216,8 @@ class PterodactylClient {
     _ensureSuccess(response);
   }
 
-  Future<void> createDirectory(String identifier, String root, String name) async {
+  Future<void> createDirectory(
+      String identifier, String root, String name) async {
     final response = await _client.post(
       _uri('/api/client/servers/$identifier/files/create-folder'),
       headers: _headers,
@@ -116,7 +226,8 @@ class PterodactylClient {
     _ensureSuccess(response);
   }
 
-  Future<void> chmodFiles(String identifier, String root, List<Map<String, String>> files) async {
+  Future<void> chmodFiles(
+      String identifier, String root, List<Map<String, String>> files) async {
     final response = await _client.post(
       _uri('/api/client/servers/$identifier/files/chmod'),
       headers: _headers,
@@ -125,7 +236,8 @@ class PterodactylClient {
     _ensureSuccess(response);
   }
 
-  Future<void> compressFiles(String identifier, String root, List<String> files) async {
+  Future<void> compressFiles(
+      String identifier, String root, List<String> files) async {
     final response = await _client.post(
       _uri('/api/client/servers/$identifier/files/compress'),
       headers: _headers,
@@ -134,7 +246,8 @@ class PterodactylClient {
     _ensureSuccess(response);
   }
 
-  Future<void> decompressFile(String identifier, String root, String file) async {
+  Future<void> decompressFile(
+      String identifier, String root, String file) async {
     final response = await _client.post(
       _uri('/api/client/servers/$identifier/files/decompress'),
       headers: _headers,
@@ -145,20 +258,25 @@ class PterodactylClient {
 
   Future<String> getFileDownloadUrl(String identifier, String file) async {
     final response = await _client.get(
-      _uri('/api/client/servers/$identifier/files/download', <String, dynamic>{'file': file}),
+      _uri('/api/client/servers/$identifier/files/download',
+          <String, dynamic>{'file': file}),
       headers: _headers,
     );
     _ensureSuccess(response);
     final decoded = jsonDecode(response.body) as Map<String, dynamic>;
-    final attributes = decoded['attributes'] as Map<String, dynamic>? ?? const {};
+    final attributes =
+        decoded['attributes'] as Map<String, dynamic>? ?? const {};
     return attributes['url']?.toString() ?? '';
   }
 
   Future<String> getFileUploadUrl(String identifier) async {
-    final response = await _client.get(_uri('/api/client/servers/$identifier/files/upload'), headers: _headers);
+    final response = await _client.get(
+        _uri('/api/client/servers/$identifier/files/upload'),
+        headers: _headers);
     _ensureSuccess(response);
     final decoded = jsonDecode(response.body) as Map<String, dynamic>;
-    final attributes = decoded['attributes'] as Map<String, dynamic>? ?? const {};
+    final attributes =
+        decoded['attributes'] as Map<String, dynamic>? ?? const {};
     return attributes['url']?.toString() ?? '';
   }
 
@@ -171,11 +289,13 @@ class PterodactylClient {
     _ensureSuccess(response);
   }
 
-  Future<void> renameServer(String identifier, String name, {String? description}) async {
+  Future<void> renameServer(String identifier, String name,
+      {String? description}) async {
     final response = await _client.post(
       _uri('/api/client/servers/$identifier/settings/rename'),
       headers: _headers,
-      body: jsonEncode(<String, dynamic>{'name': name, 'description': description}),
+      body:
+          jsonEncode(<String, dynamic>{'name': name, 'description': description}),
     );
     _ensureSuccess(response);
   }
@@ -189,7 +309,9 @@ class PterodactylClient {
   }
 
   Future<WebSocketTicket> getWebsocketTicket(String identifier) async {
-    final response = await _client.get(_uri('/api/client/servers/$identifier/websocket'), headers: _headers);
+    final response = await _client.get(
+        _uri('/api/client/servers/$identifier/websocket'),
+        headers: _headers);
     _ensureSuccess(response);
 
     final decoded = jsonDecode(response.body) as Map<String, dynamic>;
@@ -223,29 +345,9 @@ class PterodactylClient {
     }
     throw PterodactylApiException(
       response.statusCode,
-      _extractMessage(response.body) ?? 'Request failed with status ${response.statusCode}',
+      _extractErrorMessage(response.body) ??
+          'Request failed with status ${response.statusCode}',
     );
-  }
-
-  String? _extractMessage(String body) {
-    try {
-      final decoded = jsonDecode(body) as Map<String, dynamic>;
-      final errors = decoded['errors'];
-      if (errors is List && errors.isNotEmpty) {
-        final first = errors.first as Map<String, dynamic>?;
-        final detail = first?['detail']?.toString();
-        if (detail != null && detail.isNotEmpty) {
-          return detail;
-        }
-      }
-      final error = decoded['error'];
-      if (error is String && error.isNotEmpty) {
-        return error;
-      }
-    } catch (_) {
-      return null;
-    }
-    return null;
   }
 }
 

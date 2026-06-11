@@ -323,15 +323,72 @@ class _QuickActionCard extends StatelessWidget {
           spacing: 12,
           runSpacing: 12,
           children: [
-            FilledButton(onPressed: onStart, child: const Text('Start')),
-            FilledButton.tonal(onPressed: onRestart, child: const Text('Restart')),
-            OutlinedButton(onPressed: onStop, child: const Text('Stop')),
-            TextButton(onPressed: onKill, child: const Text('Kill')),
-            FilledButton.tonal(onPressed: onReinstall, child: const Text('Reinstall')),
-            OutlinedButton(onPressed: onRename, child: const Text('Rename')),
+            _ActionButton(
+              label: 'Start',
+              onPressed: onStart,
+              backgroundColor: const Color(0xFF1F8A5B),
+              foregroundColor: Colors.white,
+            ),
+            _ActionButton(
+              label: 'Restart',
+              onPressed: onRestart,
+              backgroundColor: const Color(0xFFB9770E),
+              foregroundColor: Colors.white,
+            ),
+            _ActionButton(
+              label: 'Stop',
+              onPressed: onStop,
+              backgroundColor: const Color(0xFFD64545),
+              foregroundColor: Colors.white,
+            ),
+            _ActionButton(
+              label: 'Kill',
+              onPressed: onKill,
+              backgroundColor: const Color(0xFFB23A2F),
+              foregroundColor: Colors.white,
+            ),
+            _ActionButton(
+              label: 'Reinstall',
+              onPressed: onReinstall,
+              backgroundColor: const Color(0xFF356AE6),
+              foregroundColor: Colors.white,
+            ),
+            _ActionButton(
+              label: 'Rename',
+              onPressed: onRename,
+              backgroundColor: const Color(0xFF41506B),
+              foregroundColor: Colors.white,
+            ),
           ],
         ),
       ),
+    );
+  }
+}
+
+class _ActionButton extends StatelessWidget {
+  const _ActionButton({
+    required this.label,
+    required this.onPressed,
+    required this.backgroundColor,
+    required this.foregroundColor,
+  });
+
+  final String label;
+  final VoidCallback onPressed;
+  final Color backgroundColor;
+  final Color foregroundColor;
+
+  @override
+  Widget build(BuildContext context) {
+    return FilledButton(
+      style: FilledButton.styleFrom(
+        backgroundColor: backgroundColor,
+        foregroundColor: foregroundColor,
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+      ),
+      onPressed: onPressed,
+      child: Text(label),
     );
   }
 }
